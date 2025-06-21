@@ -73,6 +73,7 @@ This approach allows for a clean call to create a model, by having three layers 
 
 ## The MLP model:
 The `MultilayerPerceptron` class is a concrete implementation of the `DLModel` wrapper, specifically designed for multi-layer perceptron architectures.
+Here i present the results of my implementation of the MLP model on the MNIST dataset:
 ![mlp_architecture](mlp-mnist.png)
 
 
@@ -94,9 +95,6 @@ The `MultilayerPerceptron` class is a concrete implementation of the `DLModel` w
 ![vsRes4layers](vsRes4layers.png)
 ![vsRes6layers](vsRes6layers.png)
 
-
-
-
 ---
 
 ## Exercise 1.3: CNNs and Their Residual Variants
@@ -106,8 +104,75 @@ The `MultilayerPerceptron` class is a concrete implementation of the `DLModel` w
 - Extended the OOP system to support **Residual Blocks** for CNNs, allowing for arbitrary depth and skip connections.
 - Implemented a transform pipeline for CIFAR-10, including data augmentation (random crops and flips) + a label smoothing technique to improve generalization.
 
+Each layer in the CNN can be configured via the base class `LayerConfiguration`:
+```python
+class LayerConfiguration:
+    """
+    A base class for specifying a layer configuration. This is intended to be subclassed
+    for different types of layers (e.g., convolutional, pooling).
+    """
+    def __init__(self, layer_type):
+        self.layer_type = layer_type
+    
+    
+    def create_layer(self):
+        """
+        Create the layer. This method should be implemented in each subclass.
+        """
+        pass
+```
+We can then create specific configurations for convolutional layers, pooling layers, etc.:
+```python
+class PoolLayerConfiguration(LayerConfiguration):
+    """
+    A subclass of LayerConfiguration for pooling layers (e.g., max pooling, avg pooling).
+    """
+
+    def __init__(self, pool_type, kernel_size, stride=None, padding=0):
+        """
+        Initialize a pooling layer configuration.
+
+        Args:
+            pool_type (str): The type of the pool. Options: 'max' or 'avg'.
+            kernel_size (int or tuple): Size of the pooling kernel.
+            stride (int or tuple): Stride of the pooling. Default is kernel_size.
+            padding (int or tuple): Padding for the pooling. Default is 0.
+        """
+        super().__init__('pool')
+        self.pool_type = pool_type
+        self.kernel_size = kernel_size
+        self.stride = stride or kernel_size
+        self.padding = padding
+
+    def create_layer(self):
+        """
+        Create the pooling layer.
+        """
+        if self.pool_type == 'max':
+            return nn.MaxPool2d(kernel_size=self.kernel_size, stride=self.stride, padding=self.padding)
+        elif self.pool_type == 'avg':
+            return nn.AvgPool2d(kernel_size=self.kernel_size, stride=self.stride, padding=self.padding)
+        else:
+            raise ValueError(f"Unknown pool_type: {self.pool_type}")
+```
+And apply it in the CNN configuration:
+```python
+conv_layers = [
+    ConvLayerConfiguration(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1),
+    ConvLayerConfiguration(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
+    PoolLayerConfiguration(pool_type='max', kernel_size=2, stride=2),
+    ConvLayerConfiguration(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
+    PoolLayerConfiguration(pool_type='max', kernel_size=2, stride=3),
+    ConvLayerConfiguration(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
+]
+conv_model = ConvolutionalNeuralNetwork.from_defaults(
+    cifar, 
+    layers_config=conv_layers, # <-- Pass the list of layer configurations
+    # ... other parameters like epochs, batch size, etc.
+)
+```
 ### Results
-The CNNs achieved good accuracy on CIFAR-10 (85% max).
+The CNNs achieved good accuracy on CIFAR-10 (87% max).
 
 ---
 
@@ -119,11 +184,22 @@ The CNNs achieved good accuracy on CIFAR-10 (85% max).
 - Implemented a **distillation pipeline**:  
   - Saved teacher logits for the entire train set using a forward hook.
   - Adapted the training wrapper to combine hard labels (cross-entropy) and soft teacher outputs (KL-div, with temperature and alpha annealing).
-  - Systematically explored the impact of temperature and alpha.
+  - Systematically explored the impact of temperature and alpha with:
+```python
+alphas        = [0.3, 0.1, 0.05]
+temperatures  = [2, 3, 4]
+grid          = list(itertools.product(alphas, temperatures))  
+```
 - Everything (distillation losses, alpha schedules, gradients, accuracy) tracked in wandb for post-mortem analysis.
 
 ### Results
 The distilled small CNN achieved higher accuracy with a faster training, but the difference was not huge.
+| Model | Validation Accuracy |
+|-------|---------------|
+| Teacher CNN | 84.5% |
+| Small CNN (from scratch) | 63.5% |
+| Small CNN (distilled) | 66.8% |
+
 ![distilled_comparison](distilled_comparison.png)
 
 ---
